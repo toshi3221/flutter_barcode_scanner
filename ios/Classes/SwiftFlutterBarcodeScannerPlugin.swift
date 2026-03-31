@@ -63,6 +63,31 @@ public class SwiftFlutterBarcodeScannerPlugin: NSObject, FlutterPlugin, ScanBarc
         barcodeStream!(barcode)
     }
     
+    /// Find the topmost presented view controller in the hierarchy
+    static func topViewController(controller: UIViewController? = nil) -> UIViewController? {
+        let root: UIViewController?
+        if let controller = controller {
+            root = controller
+        } else if #available(iOS 13.0, *) {
+            root = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow })?.rootViewController
+        } else {
+            root = UIApplication.shared.delegate?.window??.rootViewController
+        }
+        if let nav = root as? UINavigationController {
+            return topViewController(controller: nav.visibleViewController)
+        }
+        if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
+            return topViewController(controller: selected)
+        }
+        if let presented = root?.presentedViewController {
+            return topViewController(controller: presented)
+        }
+        return root
+    }
+
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args:Dictionary<String, AnyObject> = call.arguments as! Dictionary<String, AnyObject>;
         if let colorCode = args["lineColor"] as? String{
@@ -85,7 +110,7 @@ public class SwiftFlutterBarcodeScannerPlugin: NSObject, FlutterPlugin, ScanBarc
         }else {
             SwiftFlutterBarcodeScannerPlugin.isContinuousScan = false
         }
-        
+
         if let scanModeReceived = args["scanMode"] as? Int {
             if scanModeReceived == ScanMode.DEFAULT.index {
                 SwiftFlutterBarcodeScannerPlugin.scanMode = ScanMode.QR.index
@@ -95,39 +120,35 @@ public class SwiftFlutterBarcodeScannerPlugin: NSObject, FlutterPlugin, ScanBarc
         }else{
             SwiftFlutterBarcodeScannerPlugin.scanMode = ScanMode.QR.index
         }
-        
+
         pendingResult=result
         let controller = BarcodeScannerViewController()
         controller.delegate = self
-        
+
         if #available(iOS 13.0, *) {
             controller.modalPresentationStyle = .fullScreen
         }
-        
+
+        let presentingVC = SwiftFlutterBarcodeScannerPlugin.topViewController() ?? SwiftFlutterBarcodeScannerPlugin.viewController
+
         if checkCameraAvailability(){
             if checkForCameraPermission() {
-                SwiftFlutterBarcodeScannerPlugin.viewController.present(controller
-                                                                        , animated: true) {
-                    
-                }
+                presentingVC.present(controller, animated: true) {}
             }else {
                 AVCaptureDevice.requestAccess(for: .video) { success in
                     DispatchQueue.main.async {
                         if success {
-                            SwiftFlutterBarcodeScannerPlugin.viewController.present(controller
-                                                                                    , animated: true) {
-                                
-                            }
+                            presentingVC.present(controller, animated: true) {}
                         } else {
                             let alert = UIAlertController(title: "アクセスの許可が必要です", message: "QRを読み取るためにはこのアプリのカメラへのアクセスを許可する必要があります", preferredStyle: .alert)
-                            
+
                             alert.addAction(UIAlertAction(title: "許可する", style: .default, handler: { action in
                                 UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                             }))
-                            
+
                             alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-                            
-                            SwiftFlutterBarcodeScannerPlugin.viewController.present(alert, animated: true)
+
+                            presentingVC.present(alert, animated: true)
                         }
                     }
                 }}
